@@ -13,3 +13,20 @@
 (deftest renders-style-map
   (is (= "<p style=\"font-size:12px;color:red;\">x</p>"
          (html/->html [:p {:style {:font-size "12px" :color "red"}} "x"]))))
+
+(deftest void-tags-self-close
+  (is (= "<br>" (html/->html [:br])))
+  (is (= "<img src=\"x.png\">" (html/->html [:img {:src "x.png"}])))
+  (is (= "<hr>" (html/->html [:hr]))))
+
+(deftest renders-numbers-and-nested-seqs
+  (is (= "42" (html/->html 42)))
+  (is (= "<ul><li>a</li><li>b</li></ul>"
+         (html/->html [:ul [[:li "a"] [:li "b"]]]))))
+
+(deftest nil-is-invisible
+  (is (= "" (html/->html nil)))
+  (is (= "<p></p>" (html/->html [:p nil]))))
+
+(deftest escapes-attribute-values
+  (is (= "<a href=\"a&quot;b\">link</a>" (html/->html [:a {:href "a\"b"} "link"]))))
