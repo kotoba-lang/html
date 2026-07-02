@@ -15,6 +15,8 @@
   #{"area" "base" "br" "col" "embed" "hr" "img" "input"
     "link" "meta" "param" "source" "track" "wbr"})
 
+(def raw-text-tags #{"script" "style"})
+
 (defn parse-tag
   [kw]
   (let [s (name kw)
@@ -58,15 +60,29 @@
        (apply str)))
 
 (declare ->html)
+(declare render-node)
 
-(defn render-node [node sb]
+(defn- element-node? [x]
+  (when (and (vector? x)
+             (keyword? (first x))
+             (not= :hiccup/raw (first x)))
+    (let [[tag] (parse-tag (first x))]
+      (not (contains? void-tags tag)))))
+
+(defn- block-children? [children]
+  (and (seq children)
+       (every? element-node? children)))
+
+(defn render-node
+  ([node sb] (render-node node sb 0))
+  ([node sb ind]
   (cond
     (nil? node) sb
     (string? node) (conj! sb (esc node))
     (number? node) (conj! sb (str node))
     (and (vector? node) (= :hiccup/raw (first node))) (conj! sb (str (second node)))
     (and (vector? node) (not (empty? node)) (vector? (first node)))
-    (reduce (fn [s c] (render-node c s)) sb node)
+    (reduce (fn [s c] (render-node c s ind)) sb node)
     (vector? node)
     (let [[t & body] node
           [tag base] (parse-tag t)
@@ -76,14 +92,34 @@
           attrs (merge-with (fn [a b] (str (class-str a) " " (class-str b))) base attrs)]
       (conj! sb (str "<" tag (render-attrs attrs) ">"))
       (when-not (contains? void-tags tag)
-        (reduce (fn [s c] (render-node c s)) sb children)
+        (if (contains? raw-text-tags tag)
+          (conj! sb (apply str children))
+          (if (block-children? children)
+            (do
+              (doseq [c children]
+                (conj! sb "\n")
+                (conj! sb (apply str (repeat (inc ind) "  ")))
+                (render-node c sb (inc ind)))
+              (conj! sb "\n")
+              (conj! sb (apply str (repeat ind "  "))))
+            (reduce (fn [s c] (render-node c s ind)) sb children)))
         (conj! sb (str "</" tag ">")))
       sb)
-    (seq? node) (reduce (fn [s c] (render-node c s)) sb node)
-    :else (conj! sb (esc node))))
+    (seq? node) (reduce (fn [s c] (render-node c s ind)) sb node)
+    :else (conj! sb (esc node)))))
 
 (defn ->html
   [node]
   (str/join (persistent! (render-node node (transient [])))))
 
 (def render ->html)
+
+(defn html
+  "Render one or more hiccup forms to an HTML fragment."
+  [& forms]
+  (str/join "\n" (map ->html forms)))
+
+(defn html5
+  "Render a full HTML document, prepending <!DOCTYPE html>."
+  [& body]
+  (str "<!DOCTYPE html>\n" (apply html body)))
