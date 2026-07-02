@@ -17,3 +17,9 @@ maps render to CSS text, boolean attributes are supported, and
 | Operator console (UI/UX) | — |
 | Export (CSV/JSON) | — |
 | Shared CSS design system | yes (css.core/operator-theme) |
+
+## Test
+
+```bash
+clojure -M:test
+```
