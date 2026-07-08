@@ -25,6 +25,25 @@
          (h/html [:style ".a > .b { color: red }"])))
   (is (= "<p>a &lt; b</p>" (h/html [:p "a < b"]))))
 
+(deftest raw-text-content-rejects-embedded-close-tag
+  ;; HTML5's RAWTEXT parsing rule terminates <script>/<style> at the FIRST
+  ;; literal, case-insensitive "</tag" sequence, regardless of surrounding
+  ;; quotes -- verified against Python's html.parser (implements the same
+  ;; rule real browsers do): a naive "var x = \"</script><img onerror=...>\";"
+  ;; concatenation would let that embedded "</script>" close the element
+  ;; early and inject the <img> tag as real markup, a script-context XSS
+  ;; vector. This must throw rather than silently produce that output.
+  (is (thrown? clojure.lang.ExceptionInfo
+               (h/html [:script "var x = \"</script><img src=x onerror=alert(1)>\";"])))
+  (is (thrown? clojure.lang.ExceptionInfo
+               (h/html [:script "</SCRIPT>"]))
+      "case-insensitive")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (h/html [:style "content: '</style><script>alert(1)</script>';"])))
+  (is (= "<script>const s = \"no closing tag here\";</script>"
+         (h/html [:script "const s = \"no closing tag here\";"]))
+      "ordinary content without the dangerous sequence is unaffected"))
+
 (deftest nested-block-indents
   (is (= "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>"
          (h/html [:ul [:li "a"] [:li "b"]]))))
