@@ -93,7 +93,23 @@
       (conj! sb (str "<" tag (render-attrs attrs) ">"))
       (when-not (contains? void-tags tag)
         (if (contains? raw-text-tags tag)
-          (conj! sb (apply str children))
+          (let [content (apply str children)]
+            ;; HTML5 RAWTEXT parsing: a <script>/<style> element terminates
+            ;; at the FIRST literal, case-insensitive "</tag" sequence,
+            ;; regardless of surrounding quotes/strings/comments in the raw
+            ;; text. Concatenating children verbatim with no check for that
+            ;; sequence lets any string value containing e.g. "</script>"
+            ;; break out of the element and inject real markup after it --
+            ;; a script-context XSS vector (verified against Python's
+            ;; html.parser, which implements the same RAWTEXT rule real
+            ;; browsers do: the injected "</script>" terminates early, not
+            ;; the real closing tag written by this renderer).
+            (when (re-find (re-pattern (str "(?i)</" tag)) content)
+              (throw (ex-info (str "html: raw-text content for <" tag "> must not contain \"</" tag "\" "
+                                    "case-insensitively -- that sequence terminates the element early "
+                                    "per HTML5's RAWTEXT rule and can break out into injected markup")
+                               {:tag tag})))
+            (conj! sb content))
           (if (block-children? children)
             (do
               (doseq [c children]
