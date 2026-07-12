@@ -93,7 +93,19 @@
       (conj! sb (str "<" tag (render-attrs attrs) ">"))
       (when-not (contains? void-tags tag)
         (if (contains? raw-text-tags tag)
-          (let [content (apply str children)]
+          ;; [:hiccup/raw x] children are unwrapped to their payload here:
+          ;; raw-text content is emitted verbatim either way, but before the
+          ;; RAWTEXT refactor this was the ONLY way to put unescaped text in
+          ;; a <script>/<style>, so long-standing callers (css.core/
+          ;; style-node, kototama/web, the cloud-itonami demo generators)
+          ;; wrap their content in it -- without unwrapping they render as
+          ;; a printed vector literal. The "</tag" breakout guard below
+          ;; applies to the unwrapped payload the same as to plain strings.
+          (let [content (apply str (map (fn [c]
+                                          (if (and (vector? c) (= :hiccup/raw (first c)))
+                                            (str (second c))
+                                            (str c)))
+                                        children))]
             ;; HTML5 RAWTEXT parsing: a <script>/<style> element terminates
             ;; at the FIRST literal, case-insensitive "</tag" sequence,
             ;; regardless of surrounding quotes/strings/comments in the raw
