@@ -30,3 +30,21 @@
 
 (deftest escapes-attribute-values
   (is (= "<a href=\"a&quot;b\">link</a>" (html/->html [:a {:href "a\"b"} "link"]))))
+
+(deftest rawtext-unwraps-hiccup-raw-children
+  ;; css.core/style-node and long-standing script blocks wrap raw-text
+  ;; content in [:hiccup/raw ...]; the RAWTEXT branch must unwrap it to
+  ;; the payload, not print the vector literal.
+  (is (= "<style>body{color:red}</style>"
+         (html/->html [:style [:hiccup/raw "body{color:red}"]])))
+  (is (= "<script type=\"application/json\" id=\"d\">[{\"a\":1}]</script>"
+         (html/->html [:script {:type "application/json" :id "d"}
+                       [:hiccup/raw "[{\"a\":1}]"]]))))
+
+(deftest rawtext-plain-strings-stay-verbatim
+  (is (= "<script>var a = \"<b>\";</script>"
+         (html/->html [:script "var a = \"<b>\";"]))))
+
+(deftest rawtext-breakout-guard-applies-to-raw-payloads
+  (is (thrown? Exception
+               (html/->html [:script [:hiccup/raw "x</script><img src=x>"]]))))
