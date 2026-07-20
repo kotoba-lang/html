@@ -19,3 +19,8 @@ jobs:
       - run: clojure -M:test
 
       - run: clojure -M:lint
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global nbb@1.4.208
+      - run: nbb test/run_nbb_contract_tests.cljs

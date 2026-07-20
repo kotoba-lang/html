@@ -17,6 +17,11 @@
 
 (def raw-text-tags #{"script" "style"})
 
+(defn raw
+  "Mark trusted markup as unescaped. Never pass untrusted input."
+  [value]
+  [:hiccup/raw (str value)])
+
 (defn parse-tag
   [kw]
   (let [s (name kw)
@@ -81,7 +86,9 @@
     (string? node) (conj! sb (esc node))
     (number? node) (conj! sb (str node))
     (and (vector? node) (= :hiccup/raw (first node))) (conj! sb (str (second node)))
-    (and (vector? node) (not (empty? node)) (vector? (first node)))
+    (and (vector? node) (= :<> (first node)))
+    (reduce (fn [s c] (render-node c s ind)) sb (rest node))
+    (and (vector? node) (seq node) (vector? (first node)))
     (reduce (fn [s c] (render-node c s ind)) sb node)
     (vector? node)
     (let [[t & body] node
@@ -89,50 +96,33 @@
           [attrs children] (if (map? (first body))
                              [(first body) (rest body)]
                              [{} body])
-          attrs (merge-with (fn [a b] (str (class-str a) " " (class-str b))) base attrs)]
-      (conj! sb (str "<" tag (render-attrs attrs) ">"))
-      (when-not (contains? void-tags tag)
-        (if (contains? raw-text-tags tag)
-          ;; [:hiccup/raw x] children are unwrapped to their payload here:
-          ;; raw-text content is emitted verbatim either way, but before the
-          ;; RAWTEXT refactor this was the ONLY way to put unescaped text in
-          ;; a <script>/<style>, so long-standing callers (css.core/
-          ;; style-node, kototama/web, the cloud-itonami demo generators)
-          ;; wrap their content in it -- without unwrapping they render as
-          ;; a printed vector literal. The "</tag" breakout guard below
-          ;; applies to the unwrapped payload the same as to plain strings.
-          (let [content (apply str (map (fn [c]
-                                          (if (and (vector? c) (= :hiccup/raw (first c)))
-                                            (str (second c))
-                                            (str c)))
-                                        children))]
-            ;; HTML5 RAWTEXT parsing: a <script>/<style> element terminates
-            ;; at the FIRST literal, case-insensitive "</tag" sequence,
-            ;; regardless of surrounding quotes/strings/comments in the raw
-            ;; text. Concatenating children verbatim with no check for that
-            ;; sequence lets any string value containing e.g. "</script>"
-            ;; break out of the element and inject real markup after it --
-            ;; a script-context XSS vector (verified against Python's
-            ;; html.parser, which implements the same RAWTEXT rule real
-            ;; browsers do: the injected "</script>" terminates early, not
-            ;; the real closing tag written by this renderer).
-            (when (re-find (re-pattern (str "(?i)</" tag)) content)
-              (throw (ex-info (str "html: raw-text content for <" tag "> must not contain \"</" tag "\" "
-                                    "case-insensitively -- that sequence terminates the element early "
-                                    "per HTML5's RAWTEXT rule and can break out into injected markup")
-                               {:tag tag})))
-            (conj! sb content))
-          (if (block-children? children)
-            (do
-              (doseq [c children]
-                (conj! sb "\n")
-                (conj! sb (apply str (repeat (inc ind) "  ")))
-                (render-node c sb (inc ind)))
-              (conj! sb "\n")
-              (conj! sb (apply str (repeat ind "  "))))
-            (reduce (fn [s c] (render-node c s ind)) sb children)))
-        (conj! sb (str "</" tag ">")))
-      sb)
+          attrs (merge-with (fn [a b] (str (class-str a) " " (class-str b))) base attrs)
+          sb (conj! sb (str "<" tag (render-attrs attrs) ">"))]
+      (if (contains? void-tags tag)
+        sb
+        (let [sb (if (contains? raw-text-tags tag)
+                   (let [content (apply str (map (fn [child]
+                                                   (if (and (vector? child)
+                                                            (= :hiccup/raw (first child)))
+                                                     (str (second child))
+                                                     (str child)))
+                                                 children))]
+                     ;; HTML RAWTEXT terminates at the first case-insensitive </tag.
+                     (when (re-find (re-pattern (str "(?i)</" tag)) content)
+                       (throw (ex-info (str "html: raw-text content for <" tag
+                                            "> contains a closing-tag breakout")
+                                       {:tag tag})))
+                     (conj! sb content))
+                   (if (block-children? children)
+                     (let [sb (reduce (fn [s child]
+                                       (render-node child
+                                                    (conj! (conj! s "\n")
+                                                           (apply str (repeat (inc ind) "  ")))
+                                                    (inc ind)))
+                                     sb children)]
+                       (conj! (conj! sb "\n") (apply str (repeat ind "  "))))
+                     (reduce (fn [s child] (render-node child s ind)) sb children)))]
+          (conj! sb (str "</" tag ">")))))
     (seq? node) (reduce (fn [s c] (render-node c s ind)) sb node)
     :else (conj! sb (esc node)))))
 

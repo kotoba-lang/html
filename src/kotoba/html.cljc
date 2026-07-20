@@ -4,3 +4,4 @@
 
 (def html html/html)
 (def html5 html/html5)
+(def raw html/raw)
