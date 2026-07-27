@@ -34,6 +34,7 @@ children that would be a breaking output-format change for those consumers.
 | Operator console (UI/UX) | — |
 | Export (CSV/JSON) | — |
 | Shared CSS design system | yes (css.core/operator-theme) |
+| `.kotoba` string pipeline (form A) | yes (`kotoba/html_core.kotoba`, parity-gated) |
 
 ## Compatibility boundary
 
@@ -43,6 +44,11 @@ children that would be a breaking output-format change for those consumers.
 - `script` and `style` are HTML RAWTEXT elements; embedded closing-tag sequences are rejected.
 - Portable Hiccup is the shared contract. Rendered HTML is not a native-UI intermediate format.
 - Malformed or unsupported extension forms have no compatibility guarantee.
+- `kotoba/html_core.kotoba` is a form-A (call-graph) port of the string pipeline behind a
+  byte-equality gate. It is an oracle-backed experiment ahead of W4 recursive values
+  (ADR-2607279200 Delivery #6) — not the final API. Tag sugar, class collections, sequence
+  children and pretty-print indentation remain on the `.cljc` side; consumers keep using
+  `html.core` / `kotoba.html`.
 
 ## Test
 
