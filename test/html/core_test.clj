@@ -1,5 +1,5 @@
 (ns html.core-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [html.core :as html]))
 
 (deftest renders-hiccup
@@ -46,3 +46,22 @@
                (html/->html [:script "x</SCRIPT><img src=x>"])))
   (is (thrown? clojure.lang.ExceptionInfo
                (html/->html [:style [:hiccup/raw "x</style><script>x</script>"]]))))
+
+(deftest preserves-whitespace-inside-pre-and-textarea
+  (testing "<pre> and <textarea> render whitespace literally, so the
+            pretty-printer must not indent their element children"
+    ;; The canonical shape: a code block. Indenting here would put a blank
+    ;; line and two spaces in front of the code, visibly and on copy-paste.
+    (is (= "<pre><code>ipfs pin remote ls</code></pre>"
+           (html/->html [:pre [:code "ipfs pin remote ls"]])))
+    (is (= "<pre class=\"kb-pre\"><code>a\nb</code></pre>"
+           (html/->html [:pre {:class "kb-pre"} [:code "a\nb"]])))
+    ;; A textarea's content is its value — injected whitespace changes it.
+    (is (= "<textarea><span>v</span></textarea>"
+           (html/->html [:textarea [:span "v"]])))
+    ;; Multiple element children stay glued too (no separator appears).
+    (is (= "<pre><code>a</code><code>b</code></pre>"
+           (html/->html [:pre [:code "a"] [:code "b"]]))))
+  (testing "other block elements still pretty-print"
+    (is (= "<div>\n  <span>a</span>\n</div>"
+           (html/->html [:div [:span "a"]])))))
