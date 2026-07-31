@@ -19,7 +19,9 @@
   ORDERING. Attribute and style maps are walked by `typed-map-entry-at` in
   sorted key order. Parity is asserted against a key-sorted run of html.core
   (via sorted-map inputs), matching the css port's finding about Clojure map
-  order above 8 entries."
+  order above 8 entries.
+
+  T5.2: multi-arg pure folded into guest records; cases call via record-new."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [html.core :as html]
@@ -52,6 +54,22 @@
 (defn- unwrap [expr]
   (str "(result-value-of [:result :string :string] " expr " \"\")"))
 
+(defn- attr-call [name value]
+  (str "(attr (record-new [:ref :html/attr] "
+       (kotoba-literal name) " " (kotoba-literal value) "))"))
+
+(defn- void-el-call [tag attrs-expr]
+  (str "(void-el (record-new [:ref :html/void-el] "
+       (kotoba-literal tag) " " attrs-expr "))"))
+
+(defn- el-call [tag attrs-expr body-expr]
+  (str "(el (record-new [:ref :html/el] "
+       (kotoba-literal tag) " " attrs-expr " " body-expr "))"))
+
+(defn- raw-text-el-call [tag content]
+  (str "(raw-text-el (record-new [:ref :html/raw-pair] "
+       (kotoba-literal tag) " " (kotoba-literal content) "))"))
+
 ;; --- escape ---------------------------------------------------------------
 
 (def escape-corpus
@@ -75,7 +93,7 @@
 
 (deftest attr-and-bool-attr-match-html-core
   (let [actual (compile-cases
-                {"attr_href" (str "(attr \"href\" " (kotoba-literal "a\"b") ")")
+                {"attr_href" (attr-call "href" "a\"b")
                  "bool_disabled" "(bool-attr \"disabled\")"
                  "attrs_sorted" (str "(attrs " (typed-map-literal {:href "/x" :title "t"}) ")")
                  "style_css" (str "(style-css " (typed-map-literal {:font-size "12px" :color "red"}) ")")
@@ -99,21 +117,27 @@
 
 (deftest void-and-closed-elements-match-html-core
   (let [actual (compile-cases
-                {"br" "(void-el \"br\" \"\")"
-                 "img" (str "(void-el \"img\" (attr \"src\" " (kotoba-literal "x.png") "))")
-                 "hr" "(void-el \"hr\" \"\")"
-                 "h1" (str "(el \"h1\" \"\" (text " (kotoba-literal "Hello") "))")
-                 "p_style" (str "(el \"p\" (style-attr " (typed-map-literal {:font-size "12px" :color "red"}) ") "
-                                "(text " (kotoba-literal "x") "))")
-                 "demo" (str "(el \"div\" "
-                             "(string-concat (attr \"class\" " (kotoba-literal "page x") ") "
-                             "(attr \"id\" " (kotoba-literal "app") ")) "
-                             "(string-concat (el \"h1\" \"\" (text " (kotoba-literal "Hello") ")) "
-                             "(void-el \"input\" (bool-attr \"disabled\"))))")
-                 "fragment" (str "(string-concat (el \"span\" \"\" (text " (kotoba-literal "a") ")) "
-                                 "(el \"span\" \"\" (text " (kotoba-literal "b") ")))")
-                 "doc" (str "(html5 (el \"html\" \"\" (el \"body\" \"\" (text "
-                            (kotoba-literal "hi") "))))")})]
+                {"br" (void-el-call "br" "\"\"")
+                 "img" (void-el-call "img" (attr-call "src" "x.png"))
+                 "hr" (void-el-call "hr" "\"\"")
+                 "h1" (el-call "h1" "\"\"" (str "(text " (kotoba-literal "Hello") ")"))
+                 "p_style" (el-call "p"
+                                    (str "(style-attr " (typed-map-literal {:font-size "12px" :color "red"}) ")")
+                                    (str "(text " (kotoba-literal "x") ")"))
+                 "demo" (el-call "div"
+                                 (str "(string-concat " (attr-call "class" "page x") " "
+                                      (attr-call "id" "app") ")")
+                                 (str "(string-concat "
+                                      (el-call "h1" "\"\"" (str "(text " (kotoba-literal "Hello") ")")) " "
+                                      (void-el-call "input" "(bool-attr \"disabled\")") ")"))
+                 "fragment" (str "(string-concat "
+                                 (el-call "span" "\"\"" (str "(text " (kotoba-literal "a") ")")) " "
+                                 (el-call "span" "\"\"" (str "(text " (kotoba-literal "b") ")")) ")")
+                 "doc" (str "(html5 "
+                            (el-call "html" "\"\""
+                                     (el-call "body" "\"\""
+                                              (str "(text " (kotoba-literal "hi") ")")))
+                            ")")})]
     (testing "void tags"
       (is (= (html/->html [:br]) (get actual "br")))
       (is (= (html/->html [:img {:src "x.png"}]) (get actual "img")))
@@ -144,12 +168,12 @@
         bad-script "x</SCRIPT><img src=x>"
         bad-style "x</style><script>x</script>"
         actual (compile-cases
-                {"script_ok" (unwrap (str "(raw-text-el \"script\" " (kotoba-literal ok-script) ")"))
-                 "style_ok" (unwrap (str "(raw-text-el \"style\" " (kotoba-literal ok-style) ")"))
-                 "script_bad" (str "(match-result (raw-text-el \"script\" " (kotoba-literal bad-script) ")"
+                {"script_ok" (unwrap (raw-text-el-call "script" ok-script))
+                 "style_ok" (unwrap (raw-text-el-call "style" ok-style))
+                 "script_bad" (str "(match-result " (raw-text-el-call "script" bad-script)
                                    " [:result :string :string]"
                                    " (ok text text) (err message \"REJECTED\"))")
-                 "style_bad" (str "(match-result (raw-text-el \"style\" " (kotoba-literal bad-style) ")"
+                 "style_bad" (str "(match-result " (raw-text-el-call "style" bad-style)
                                   " [:result :string :string]"
                                   " (ok text text) (err message \"REJECTED\"))")})]
     (testing "safe RAWTEXT renders unescaped"

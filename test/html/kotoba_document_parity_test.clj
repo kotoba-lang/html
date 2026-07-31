@@ -43,14 +43,20 @@
          form-a-source
          {"esc_amp" (str "(esc " (kotoba-literal "a&b") ")")
           "esc_lt" (str "(esc " (kotoba-literal "<tag>") ")")
-          "br" "(void-el \"br\" \"\")"
-          "img" (str "(void-el \"img\" (attr \"src\" " (kotoba-literal "x.png") "))")
-          "h1" (str "(el \"h1\" \"\" (text " (kotoba-literal "Hello") "))")
-          "page" (str "(el \"div\" \"\" (string-concat "
-                      "(el \"h1\" \"\" (text " (kotoba-literal "Hello") ")) "
-                      "(el \"p\" \"\" (text " (kotoba-literal "World") "))))")
-          "doc" (str "(html5 (el \"html\" \"\" (el \"body\" \"\" (text "
-                     (kotoba-literal "hi") "))))")})
+          "br" "(void-el (record-new [:ref :html/void-el] \"br\" \"\"))"
+          "img" (str "(void-el (record-new [:ref :html/void-el] \"img\" "
+                     "(attr (record-new [:ref :html/attr] \"src\" "
+                     (kotoba-literal "x.png") "))))")
+          "h1" (str "(el (record-new [:ref :html/el] \"h1\" \"\" "
+                    "(text " (kotoba-literal "Hello") ")))")
+          "page" (str "(el (record-new [:ref :html/el] \"div\" \"\" (string-concat "
+                      "(el (record-new [:ref :html/el] \"h1\" \"\" "
+                      "(text " (kotoba-literal "Hello") "))) "
+                      "(el (record-new [:ref :html/el] \"p\" \"\" "
+                      "(text " (kotoba-literal "World") "))))))")
+          "doc" (str "(html5 (el (record-new [:ref :html/el] \"html\" \"\" "
+                     "(el (record-new [:ref :html/el] \"body\" \"\" "
+                     "(text " (kotoba-literal "hi") "))))))")})
         docs
         (compile-and-run
          document-source
