@@ -11,7 +11,9 @@
   Also locks document identity: equal?, sha256, print/read round-trip.
 
   Form-A and html.core remain; consumer APIs unchanged. Tag sugar, class
-  collections, and pretty-print stay host-side (same as form-A scope)."
+  collections, and pretty-print stay host-side (same as form-A scope).
+
+  T5.2 + document-in-record: multi-arg pure folded into :hdoc/* guest records."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [html.core :as html]
@@ -36,6 +38,22 @@
     (into {} (map (fn [[name _]]
                     [name (ir/execute kir (symbol name) [] {:fuel fuel})])
                   cases))))
+
+(defn- hdoc-leaf [tag text]
+  (str "(leaf (record-new [:ref :hdoc/leaf] "
+       (kotoba-literal tag) " " (kotoba-literal text) "))"))
+
+(defn- hdoc-branch [tag kids-expr]
+  (str "(branch (record-new [:ref :hdoc/branch] "
+       (kotoba-literal tag) " " kids-expr "))"))
+
+(defn- hdoc-void-attrs [tag attrs-expr]
+  (str "(void-node-attrs (record-new [:ref :hdoc/void-attrs] "
+       (kotoba-literal tag) " " attrs-expr "))"))
+
+(defn- hdoc-leaf-attrs [tag attrs-expr text]
+  (str "(leaf-attrs (record-new [:ref :hdoc/leaf-attrs] "
+       (kotoba-literal tag) " " attrs-expr " " (kotoba-literal text) "))"))
 
 (deftest document-escape-and-elements-match-form-a-and-html-core
   (let [form-a
@@ -63,14 +81,17 @@
          {"esc_amp" (str "(render (text-node " (kotoba-literal "a&b") "))")
           "esc_lt" (str "(render (text-node " (kotoba-literal "<tag>") "))")
           "br" "(render (void-node \"br\"))"
-          "img" (str "(render (void-node-attrs \"img\" "
-                     "(document-map :src (document-string " (kotoba-literal "x.png") "))))")
-          "h1" (str "(render (leaf \"h1\" " (kotoba-literal "Hello") "))")
-          "page" (str "(render (branch \"div\" (document-vector "
-                      "(leaf \"h1\" " (kotoba-literal "Hello") ") "
-                      "(leaf \"p\" " (kotoba-literal "World") "))))")
-          "doc" (str "(html5 (branch \"html\" (document-vector "
-                     "(leaf \"body\" " (kotoba-literal "hi") "))))")})]
+          "img" (str "(render " (hdoc-void-attrs "img"
+                                                 (str "(document-map :src (document-string "
+                                                      (kotoba-literal "x.png") "))")) ")")
+          "h1" (str "(render " (hdoc-leaf "h1" "Hello") ")")
+          "page" (str "(render " (hdoc-branch "div"
+                                              (str "(document-vector "
+                                                   (hdoc-leaf "h1" "Hello") " "
+                                                   (hdoc-leaf "p" "World") ")")) ")")
+          "doc" (str "(html5 " (hdoc-branch "html"
+                                            (str "(document-vector "
+                                                 (hdoc-leaf "body" "hi") ")")) ")")})]
     (testing "escape"
       (is (= (html/esc "a&b") (get form-a "esc_amp") (get docs "esc_amp")))
       (is (= (html/esc "<tag>") (get form-a "esc_lt") (get docs "esc_lt"))))
@@ -79,8 +100,6 @@
       (is (= (html/->html [:img {:src "x.png"}]) (get form-a "img") (get docs "img"))))
     (testing "closed + nested (compact — html.core pretty-prints block children)"
       (is (= (html/->html [:h1 "Hello"]) (get form-a "h1") (get docs "h1")))
-      ;; form-A / document emit call-graph order with no inserted newlines;
-      ;; html.core pretty-prints multi-child block elements.
       (is (= "<div><h1>Hello</h1><p>World</p></div>"
              (get form-a "page") (get docs "page")))
       (is (str/includes? (html/->html [:div [:h1 "Hello"] [:p "World"]])
@@ -93,12 +112,11 @@
   (let [docs
         (compile-and-run
          document-source
-         {"a" (str "(render (leaf-attrs \"a\" "
-                   "(document-map :href (document-string \"/x\") "
-                   ":title (document-string \"t\")) "
-                   (kotoba-literal "go") "))")
-          "bool" (str "(render (void-node-attrs \"input\" "
-                      "(document-map :disabled (document-bool true))))")})]
+         {"a" (str "(render " (hdoc-leaf-attrs "a"
+                                               "(document-map :href (document-string \"/x\") :title (document-string \"t\"))"
+                                               "go") ")")
+          "bool" (str "(render " (hdoc-void-attrs "input"
+                                                  "(document-map :disabled (document-bool true))") ")")})]
     (testing "attrs key-sorted"
       (is (= (html/->html [:a (into (sorted-map) {:href "/x" :title "t"}) "go"])
              (get docs "a"))))
@@ -109,9 +127,9 @@
 (deftest document-identity-print-read-sha256
   (let [source (str document-source "\n"
                     "(defn page [] :document\n"
-                    "  (branch \"div\" (document-vector\n"
-                    "    (leaf \"h1\" \"Hello\")\n"
-                    "    (leaf \"p\" \"World\"))))\n"
+                    "  (branch (record-new [:ref :hdoc/branch] \"div\" (document-vector\n"
+                    "    (leaf (record-new [:ref :hdoc/leaf] \"h1\" \"Hello\"))\n"
+                    "    (leaf (record-new [:ref :hdoc/leaf] \"p\" \"World\"))))))\n"
                     "(defn page-html [] :string (render (page)))\n"
                     "(defn page-dig [] :string (node-digest (page)))\n"
                     "(defn page-print [] :string (node-print (page)))\n"

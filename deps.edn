@@ -10,8 +10,8 @@
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
                       io.github.kotoba-lang/compiler
                       {:git/url "https://github.com/kotoba-lang/compiler.git"
-                       ;; T5.2 native guest records (record-new / record-get sugar)
-                       :git/sha "98b56bdb6886236281b634cc3409088ed2fe72a4"}}
+                       ;; document-in-record: :document guest-record field type
+                       :git/sha "7691b1aeb7baa22785b6fbb5689133de85dacde6"}}
          :main-opts ["-m" "cognitect.test-runner"]}
        ;; clj-kondo as a Clojars lib (no Homebrew/system install needed).
        :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
