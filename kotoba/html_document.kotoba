@@ -1,4 +1,32 @@
-(ns html-document)
+(ns html-document
+  ;; No :export: parity harness appends zero-arg case defns via KIR.
+  ;;
+  ;; T5.2 + document-in-record (compiler ≥ 7691b1ae): multi-arg pure that
+  ;; carries :document folds into guest records.
+  (:schemas {:hdoc/void-attrs [:record :hdoc/void-attrs
+                               [[:tag :string] [:attrs :document]]]
+             :hdoc/leaf [:record :hdoc/leaf
+                         [[:tag :string] [:text :string]]]
+             :hdoc/leaf-attrs [:record :hdoc/leaf-attrs
+                               [[:tag :string] [:attrs :document] [:text :string]]]
+             :hdoc/branch [:record :hdoc/branch
+                           [[:tag :string] [:children :document]]]
+             :hdoc/branch-attrs [:record :hdoc/branch-attrs
+                                 [[:tag :string]
+                                  [:attrs :document]
+                                  [:children :document]]]
+             :hdoc/attr-pair [:record :hdoc/attr-pair
+                              [[:name :string] [:value :string]]]
+             :hdoc/render-attrs-from [:record :hdoc/render-attrs-from
+                                      [[:attrs :document]
+                                       [:i :i64]
+                                       [:n :i64]
+                                       [:acc :string]]]
+             :hdoc/render-kids [:record :hdoc/render-kids
+                                [[:kids :document]
+                                 [:i :i64]
+                                 [:n :i64]
+                                 [:acc :string]]]}))
 
 ;; Delivery 6 second cutover slice (ADR-2607279200 / ADR-2607270100 §10 /
 ;; migration plan W6 dependency order css → **html** → …):
@@ -15,6 +43,7 @@
 ;; `html.core` APIs are unchanged.
 ;;
 ;; Capability-free (kotoba/pure). Handles are not the application model.
+;; T5.2: multi-arg pure folded into :hdoc/* guest records after document-in-record.
 
 ;; --- escape (same four replacements as html.core / form-A) ----------------
 
@@ -53,28 +82,40 @@
 (defn void-node [tag :string] :document
   (document-map :tag (document-string tag) :void (document-bool true)))
 
-(defn void-node-attrs [tag :string attrs :document] :document
-  (document-map :tag (document-string tag)
-                :void (document-bool true)
-                :attrs attrs))
+(defn void-node-attrs [x [:ref :hdoc/void-attrs]] :document
+  (let [tag (record-get x :tag)
+        attrs (record-get x :attrs)]
+    (document-map :tag (document-string tag)
+                  :void (document-bool true)
+                  :attrs attrs)))
 
-(defn leaf [tag :string text :string] :document
-  (document-map :tag (document-string tag)
-                :text (document-string text)))
+(defn leaf [x [:ref :hdoc/leaf]] :document
+  (let [tag (record-get x :tag)
+        text (record-get x :text)]
+    (document-map :tag (document-string tag)
+                  :text (document-string text))))
 
-(defn leaf-attrs [tag :string attrs :document text :string] :document
-  (document-map :tag (document-string tag)
-                :attrs attrs
-                :text (document-string text)))
+(defn leaf-attrs [x [:ref :hdoc/leaf-attrs]] :document
+  (let [tag (record-get x :tag)
+        attrs (record-get x :attrs)
+        text (record-get x :text)]
+    (document-map :tag (document-string tag)
+                  :attrs attrs
+                  :text (document-string text))))
 
-(defn branch [tag :string children :document] :document
-  (document-map :tag (document-string tag)
-                :children children))
+(defn branch [x [:ref :hdoc/branch]] :document
+  (let [tag (record-get x :tag)
+        children (record-get x :children)]
+    (document-map :tag (document-string tag)
+                  :children children)))
 
-(defn branch-attrs [tag :string attrs :document children :document] :document
-  (document-map :tag (document-string tag)
-                :attrs attrs
-                :children children))
+(defn branch-attrs [x [:ref :hdoc/branch-attrs]] :document
+  (let [tag (record-get x :tag)
+        attrs (record-get x :attrs)
+        children (record-get x :children)]
+    (document-map :tag (document-string tag)
+                  :attrs attrs
+                  :children children)))
 
 (defn attrs-map [entries :document] :document
   entries)
@@ -112,11 +153,13 @@
 
 ;; --- attribute emission (key-sorted via document-map-entry-at) ------------
 
-(defn attr-pair [name :string value :string] :string
-  (string-concat " "
-                 (string-concat name
-                                (string-concat "=\""
-                                               (string-concat (esc value) "\"")))))
+(defn attr-pair [x [:ref :hdoc/attr-pair]] :string
+  (let [name (record-get x :name)
+        value (record-get x :value)]
+    (string-concat " "
+                   (string-concat name
+                                  (string-concat "=\""
+                                                 (string-concat (esc value) "\""))))))
 
 (defn bool-attr [name :string] :string
   (string-concat " " name))
@@ -134,34 +177,49 @@
       (if (option-value-of [:option :bool] (document-bool-value vdoc) false)
         (bool-attr name)
         "")
-      (attr-pair name
-                 (option-value-of [:option :string]
-                   (document-string-value vdoc) "")))))
+      (attr-pair
+       (record-new [:ref :hdoc/attr-pair]
+                   name
+                   (option-value-of [:option :string]
+                     (document-string-value vdoc) ""))))))
 
-(defn render-attrs-from [attrs :document i :i64 n :i64 acc :string] :string
-  (if (>= i n)
-    acc
-    (render-attrs-from attrs (+ i 1) n
-      (string-concat acc
-        (render-attr-entry
-         (option-value-of [:option :document]
-           (document-map-entry-at attrs i) (document-null)))))))
+(defn render-attrs-from [x [:ref :hdoc/render-attrs-from]] :string
+  (let [attrs (record-get x :attrs)
+        i (record-get x :i)
+        n (record-get x :n)
+        acc (record-get x :acc)]
+    (if (>= i n)
+      acc
+      (render-attrs-from
+       (record-new [:ref :hdoc/render-attrs-from]
+                   attrs (+ i 1) n
+                   (string-concat acc
+                     (render-attr-entry
+                      (option-value-of [:option :document]
+                        (document-map-entry-at attrs i) (document-null)))))))))
 
 (defn render-attrs [d :document] :string
   (let [a (attrs-of d)]
     (if (= (document-kind a) :map)
-      (render-attrs-from a 0 (document-count a) "")
+      (render-attrs-from
+       (record-new [:ref :hdoc/render-attrs-from] a 0 (document-count a) ""))
       "")))
 
 ;; --- render logical UI document → HTML stream -----------------------------
 
-(defn render-kids [kids :document i :i64 n :i64 acc :string] :string
-  (if (>= i n)
-    acc
-    (render-kids kids (+ i 1) n
-      (string-concat acc
-        (render (option-value-of [:option :document]
-                  (document-vector-at kids i) (document-null)))))))
+(defn render-kids [x [:ref :hdoc/render-kids]] :string
+  (let [kids (record-get x :kids)
+        i (record-get x :i)
+        n (record-get x :n)
+        acc (record-get x :acc)]
+    (if (>= i n)
+      acc
+      (render-kids
+       (record-new [:ref :hdoc/render-kids]
+                   kids (+ i 1) n
+                   (string-concat acc
+                     (render (option-value-of [:option :document]
+                               (document-vector-at kids i) (document-null)))))))))
 
 (defn render [d :document] :string
   (if (= (document-kind d) :string)
@@ -179,8 +237,11 @@
             (string-concat (tag-of d)
               (string-concat (render-attrs d)
                 (string-concat ">"
-                  (string-concat (render-kids (kids-of d) 0 (document-count (kids-of d)) "")
-                    (string-concat "</" (string-concat (tag-of d) ">")))))))
+                  (string-concat
+                   (render-kids
+                    (record-new [:ref :hdoc/render-kids]
+                                (kids-of d) 0 (document-count (kids-of d)) ""))
+                   (string-concat "</" (string-concat (tag-of d) ">")))))))
           (string-concat "<"
             (string-concat (tag-of d)
               (string-concat (render-attrs d)
@@ -205,7 +266,9 @@
 (defn main []
   (string-byte-length
    (render
-    (branch "div"
-      (document-vector
-        (leaf "h1" "Hello")
-        (void-node "br"))))))
+    (branch
+     (record-new [:ref :hdoc/branch]
+                 "div"
+                 (document-vector
+                  (leaf (record-new [:ref :hdoc/leaf] "h1" "Hello"))
+                  (void-node "br")))))))
