@@ -1,4 +1,25 @@
-(ns html-core)
+(ns html-core
+  ;; No :export: parity harness appends zero-arg case defns and executes them
+  ;; via KIR. Schemas alone enable record-new/get.
+  (:schemas {;; T5.2 native guest record: multi-arg pure → single record
+             :html/attr [:record :html/attr
+                         [[:name :string] [:value :string]]]
+             :html/style-decl [:record :html/style-decl
+                               [[:prop :keyword] [:value :string]]]
+             :html/style-from [:record :html/style-from
+                               [[:decls [:map :keyword :string]]
+                                [:index :i64]
+                                [:acc :string]]]
+             :html/attrs-from [:record :html/attrs-from
+                               [[:attrs [:map :keyword :string]]
+                                [:index :i64]
+                                [:acc :string]]]
+             :html/void-el [:record :html/void-el
+                            [[:tag :string] [:attrs-str :string]]]
+             :html/el [:record :html/el
+                       [[:tag :string] [:attrs-str :string] [:body :string]]]
+             :html/raw-pair [:record :html/raw-pair
+                             [[:tag :string] [:content :string]]]}))
 
 ;; A `.kotoba` port of the string-producing core of `html.core` (ADR-2607270100
 ;; §10, form A: components are :string-returning pure functions, the tree lives
@@ -17,6 +38,8 @@
 ;; construction. The .cljc original walks a Clojure map (insertion-ordered only
 ;; up to 8 entries); parity therefore holds against a key-sorted .cljc run
 ;; (see the parity test), same finding as the css port.
+;;
+;; T5.2: multi-arg pure folded into single guest records.
 
 ;; --- escape ---------------------------------------------------------------
 ;; Same four replacements as html.core/esc, in the same order so that an
@@ -39,72 +62,99 @@
 ;; bare name (HTML boolean attribute syntax). Nil/false skipping is a host
 ;; concern: only present attrs are passed in.
 
-(defn attr [name :string value :string] :string
-  (string-concat " "
-                 (string-concat name
-                                (string-concat "=\""
-                                               (string-concat (esc value) "\"")))))
+(defn attr [x [:ref :html/attr]] :string
+  ;; T5.2: name+value on one guest record
+  (let [name (record-get x :name)
+        value (record-get x :value)]
+    (string-concat " "
+                   (string-concat name
+                                  (string-concat "=\""
+                                                 (string-concat (esc value) "\""))))))
 
 (defn bool-attr [name :string] :string
   (string-concat " " name))
 
-(defn style-decl [prop :keyword value :string] :string
-  (string-concat (keyword-name prop)
-                 (string-concat ":"
-                                (string-concat value ";"))))
+(defn style-decl [x [:ref :html/style-decl]] :string
+  ;; T5.2: prop+value on one guest record
+  (let [prop (record-get x :prop)
+        value (record-get x :value)]
+    (string-concat (keyword-name prop)
+                   (string-concat ":"
+                                  (string-concat value ";")))))
 
-(defn style-from [decls [:map :keyword :string] index :i64 acc :string] :string
-  (match-option (typed-map-entry-at [:map :keyword :string] decls index)
-                [:option [:vector [:keyword :string]]]
-                (none acc)
-                (some entry
-                      (style-from decls
-                                  (+ index 1)
-                                  (string-concat acc
-                                                 (style-decl
-                                                  (hetero-vector-at [:vector [:keyword :string]] entry 0)
-                                                  (hetero-vector-at [:vector [:keyword :string]] entry 1)))))))
+(defn style-from [x [:ref :html/style-from]] :string
+  ;; T5.2: decls+index+acc on one guest record
+  (let [decls (record-get x :decls)
+        index (record-get x :index)
+        acc (record-get x :acc)]
+    (match-option (typed-map-entry-at [:map :keyword :string] decls index)
+                  [:option [:vector [:keyword :string]]]
+                  (none acc)
+                  (some entry
+                        (style-from
+                         (record-new [:ref :html/style-from]
+                                     decls
+                                     (+ index 1)
+                                     (string-concat acc
+                                                    (style-decl
+                                                     (record-new [:ref :html/style-decl]
+                                                                 (hetero-vector-at [:vector [:keyword :string]] entry 0)
+                                                                 (hetero-vector-at [:vector [:keyword :string]] entry 1))))))))))
 
 (defn style-css [decls [:map :keyword :string]] :string
-  (style-from decls 0 ""))
+  (style-from (record-new [:ref :html/style-from] decls 0 "")))
 
 (defn style-attr [decls [:map :keyword :string]] :string
-  (attr "style" (style-css decls)))
+  (attr (record-new [:ref :html/attr] "style" (style-css decls))))
 
-(defn attrs-from [attrs [:map :keyword :string] index :i64 acc :string] :string
-  (match-option (typed-map-entry-at [:map :keyword :string] attrs index)
-                [:option [:vector [:keyword :string]]]
-                (none acc)
-                (some entry
-                      (attrs-from attrs
-                                  (+ index 1)
-                                  (string-concat acc
-                                                 (attr
-                                                  (keyword-name
-                                                   (hetero-vector-at [:vector [:keyword :string]] entry 0))
-                                                  (hetero-vector-at [:vector [:keyword :string]] entry 1)))))))
+(defn attrs-from [x [:ref :html/attrs-from]] :string
+  ;; T5.2: attrs+index+acc on one guest record
+  (let [attrs (record-get x :attrs)
+        index (record-get x :index)
+        acc (record-get x :acc)]
+    (match-option (typed-map-entry-at [:map :keyword :string] attrs index)
+                  [:option [:vector [:keyword :string]]]
+                  (none acc)
+                  (some entry
+                        (attrs-from
+                         (record-new [:ref :html/attrs-from]
+                                     attrs
+                                     (+ index 1)
+                                     (string-concat acc
+                                                    (attr
+                                                     (record-new [:ref :html/attr]
+                                                                 (keyword-name
+                                                                  (hetero-vector-at [:vector [:keyword :string]] entry 0))
+                                                                 (hetero-vector-at [:vector [:keyword :string]] entry 1))))))))))
 
 (defn attrs [m [:map :keyword :string]] :string
-  (attrs-from m 0 ""))
+  (attrs-from (record-new [:ref :html/attrs-from] m 0 "")))
 
 ;; --- elements -------------------------------------------------------------
 ;; `void-el` emits no closing tag. `el` always closes. RAWTEXT (`script` /
 ;; `style`) uses `raw-text-el`, which leaves the body unescaped and refuses
 ;; content that would terminate the element early.
 
-(defn void-el [tag :string attrs-str :string] :string
-  (string-concat "<"
-                 (string-concat tag
-                                (string-concat attrs-str ">"))))
+(defn void-el [x [:ref :html/void-el]] :string
+  ;; T5.2: tag+attrs-str on one guest record
+  (let [tag (record-get x :tag)
+        attrs-str (record-get x :attrs-str)]
+    (string-concat "<"
+                   (string-concat tag
+                                  (string-concat attrs-str ">")))))
 
-(defn el [tag :string attrs-str :string body :string] :string
-  (string-concat "<"
-                 (string-concat tag
-                                (string-concat attrs-str
-                                               (string-concat ">"
-                                                              (string-concat body
-                                                                             (string-concat "</"
-                                                                                            (string-concat tag ">"))))))))
+(defn el [x [:ref :html/el]] :string
+  ;; T5.2: tag+attrs-str+body on one guest record
+  (let [tag (record-get x :tag)
+        attrs-str (record-get x :attrs-str)
+        body (record-get x :body)]
+    (string-concat "<"
+                   (string-concat tag
+                                  (string-concat attrs-str
+                                                 (string-concat ">"
+                                                                (string-concat body
+                                                                               (string-concat "</"
+                                                                                              (string-concat tag ">")))))))))
 
 ;; --- RAWTEXT breakout guard ----------------------------------------------
 ;; HTML RAWTEXT terminates at the first case-insensitive `</tag`. The .cljc
@@ -112,23 +162,29 @@
 ;; the same check without one. Failure is a [:result :string :string] err
 ;; value rather than a thrown exception.
 
-(defn raw-text-safe? [tag :string content :string] :bool
-  (if (string-contains? (string-fold-case content)
-                        (string-concat "</" (string-fold-case tag)))
-    false
-    true))
+(defn raw-text-safe? [x [:ref :html/raw-pair]] :bool
+  ;; T5.2: tag+content on one guest record
+  (let [tag (record-get x :tag)
+        content (record-get x :content)]
+    (if (string-contains? (string-fold-case content)
+                          (string-concat "</" (string-fold-case tag)))
+      false
+      true)))
 
-(defn raw-text-el [tag :string content :string] [:result :string :string]
-  (if (raw-text-safe? tag content)
-    (result-ok-of [:result :string :string]
-                  (string-concat "<"
-                                 (string-concat tag
-                                                (string-concat ">"
-                                                               (string-concat content
-                                                                              (string-concat "</"
-                                                                                             (string-concat tag ">")))))))
-    (result-err-of [:result :string :string]
-                   (string-concat "raw-text breakout in <" (string-concat tag ">")))))
+(defn raw-text-el [x [:ref :html/raw-pair]] [:result :string :string]
+  ;; T5.2: tag+content on one guest record (same shape as raw-text-safe?)
+  (let [tag (record-get x :tag)
+        content (record-get x :content)]
+    (if (raw-text-safe? (record-new [:ref :html/raw-pair] tag content))
+      (result-ok-of [:result :string :string]
+                    (string-concat "<"
+                                   (string-concat tag
+                                                  (string-concat ">"
+                                                                 (string-concat content
+                                                                                (string-concat "</"
+                                                                                               (string-concat tag ">")))))))
+      (result-err-of [:result :string :string]
+                     (string-concat "raw-text breakout in <" (string-concat tag ">"))))))
 
 ;; --- document -------------------------------------------------------------
 
@@ -138,7 +194,11 @@
 (defn main []
   ;; Self-check: the same fragment the .cljc contract test asserts.
   (string-byte-length
-   (el "div"
-       (string-concat (attr "class" "page x") (attr "id" "app"))
-       (string-concat (el "h1" "" (text "Hello"))
-                      (void-el "input" (bool-attr "disabled"))))))
+   (el (record-new [:ref :html/el]
+                   "div"
+                   (string-concat (attr (record-new [:ref :html/attr] "class" "page x"))
+                                  (attr (record-new [:ref :html/attr] "id" "app")))
+                   (string-concat (el (record-new [:ref :html/el] "h1" "" (text "Hello")))
+                                  (void-el (record-new [:ref :html/void-el]
+                                                       "input"
+                                                       (bool-attr "disabled"))))))))
