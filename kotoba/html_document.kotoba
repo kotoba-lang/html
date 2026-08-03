@@ -123,32 +123,27 @@
 ;; --- field accessors ------------------------------------------------------
 
 (defn tag-of [d :document] :string
-  (option-value-of [:option :string]
+  (option-or
     (document-string-value
-      (option-value-of [:option :document]
-        (document-get d :tag) (document-null)))
+      (option-or (document-get d :tag) (document-null)))
     "div"))
 
 (defn text-of [d :document] :string
-  (option-value-of [:option :string]
+  (option-or
     (document-string-value
-      (option-value-of [:option :document]
-        (document-get d :text) (document-null)))
+      (option-or (document-get d :text) (document-null)))
     ""))
 
 (defn kids-of [d :document] :document
-  (option-value-of [:option :document]
-    (document-get d :children) (document-vector)))
+  (option-or (document-get d :children) (document-vector)))
 
 (defn attrs-of [d :document] :document
-  (option-value-of [:option :document]
-    (document-get d :attrs) (document-map)))
+  (option-or (document-get d :attrs) (document-map)))
 
 (defn void-of [d :document] :bool
-  (option-value-of [:option :bool]
+  (option-or
     (document-bool-value
-      (option-value-of [:option :document]
-        (document-get d :void) (document-null)))
+      (option-or (document-get d :void) (document-null)))
     false))
 
 ;; --- attribute emission (key-sorted via document-map-entry-at) ------------
@@ -166,22 +161,18 @@
 
 (defn render-attr-entry [entry :document] :string
   ;; entry is a vector document [keyword-doc, value-doc]
-  (let [kdoc (option-value-of [:option :document]
-               (document-vector-at entry 0) (document-null))
-        vdoc (option-value-of [:option :document]
-               (document-vector-at entry 1) (document-null))
+  (let [kdoc (option-or (document-vector-at entry 0) (document-null))
+        vdoc (option-or (document-vector-at entry 1) (document-null))
         name (keyword-name
-              (option-value-of [:option :keyword]
-                (document-keyword-value kdoc) :missing))]
+              (option-or (document-keyword-value kdoc) :missing))]
     (if (= (document-kind vdoc) :bool)
-      (if (option-value-of [:option :bool] (document-bool-value vdoc) false)
+      (if (option-or (document-bool-value vdoc) false)
         (bool-attr name)
         "")
       (attr-pair
        (record-new [:ref :hdoc/attr-pair]
                    name
-                   (option-value-of [:option :string]
-                     (document-string-value vdoc) ""))))))
+                   (option-or (document-string-value vdoc) ""))))))
 
 (defn render-attrs-from [x [:ref :hdoc/render-attrs-from]] :string
   (let [attrs (record-get x :attrs)
@@ -195,8 +186,8 @@
                    attrs (+ i 1) n
                    (string-concat acc
                      (render-attr-entry
-                      (option-value-of [:option :document]
-                        (document-map-entry-at attrs i) (document-null)))))))))
+                      (option-or (document-map-entry-at attrs i)
+                                 (document-null)))))))))
 
 (defn render-attrs [d :document] :string
   (let [a (attrs-of d)]
@@ -218,12 +209,12 @@
        (record-new [:ref :hdoc/render-kids]
                    kids (+ i 1) n
                    (string-concat acc
-                     (render (option-value-of [:option :document]
-                               (document-vector-at kids i) (document-null)))))))))
+                     (render (option-or (document-vector-at kids i)
+                                        (document-null)))))))))
 
 (defn render [d :document] :string
   (if (= (document-kind d) :string)
-    (esc (option-value-of [:option :string] (document-string-value d) ""))
+    (esc (option-or (document-string-value d) ""))
     (if (void-of d)
       (string-concat "<"
         (string-concat (tag-of d)
