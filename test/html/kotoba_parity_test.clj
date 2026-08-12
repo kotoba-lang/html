@@ -9,12 +9,23 @@
   function whose whole body is the call under test, and the interpreter hands
   back the resulting string directly.
 
-  SCOPE. Form A means the Hiccup *tree* is not a value — tag sugar, class
-  collections, sequence children and pretty-print indentation stay in
-  html.core. What is gated is the string pipeline: escape, attribute/style
-  emission, void vs closed elements, RAWTEXT breakout refusal, and call-graph
+  SCOPE. Form A means the Hiccup *tree* is not a value — class collections,
+  sequence children and pretty-print indentation stay in html.core. What is
+  gated is the string pipeline: escape, attribute/style emission, void vs
+  closed elements, RAWTEXT breakout refusal, tag sugar, and call-graph
   composition of those pieces into the same bytes html.core emits for the
   equivalent flat structure.
+
+  TAG SUGAR. html.core/parse-tag is gated below against the real function (its
+  two halves as separate string cases, plus the rendered base attribute string
+  and an end-to-end element). html.core/class-str is NOT ported and is not
+  gated: it dispatches on the *runtime type* of an arbitrary Clojure value
+  (string? / keyword? / symbol? / coll? / else `str`) and recursively folds an
+  arbitrarily nested, heterogeneous collection while dropping nils. Kotoba is
+  statically typed and has no untyped value to dispatch on, no `str` over
+  arbitrary host values, and no heterogeneous nested collection to fold — so
+  this is a genuine host-language dependency, not a missing head. It stays in
+  .cljc, and the port takes the already-resolved class string.
 
   ORDERING. Attribute and style maps are walked by `typed-map-entry-at` in
   sorted key order. Parity is asserted against a key-sorted run of html.core
@@ -62,9 +73,14 @@
   (str "(void-el (record-new [:ref :html/void-el] "
        (kotoba-literal tag) " " attrs-expr "))"))
 
-(defn- el-call [tag attrs-expr body-expr]
+(defn- el-expr-call
+  "`el` where the tag is an arbitrary `.kotoba` expression, not a literal."
+  [tag-expr attrs-expr body-expr]
   (str "(el (record-new [:ref :html/el] "
-       (kotoba-literal tag) " " attrs-expr " " body-expr "))"))
+       tag-expr " " attrs-expr " " body-expr "))"))
+
+(defn- el-call [tag attrs-expr body-expr]
+  (el-expr-call (kotoba-literal tag) attrs-expr body-expr))
 
 (defn- raw-text-el-call [tag content]
   (str "(raw-text-el (record-new [:ref :html/raw-pair] "
@@ -185,3 +201,50 @@
                    (html/->html [:style [:hiccup/raw bad-style]])))
       (is (= "REJECTED" (get actual "script_bad")))
       (is (= "REJECTED" (get actual "style_bad"))))))
+
+;; --- tag sugar ------------------------------------------------------------
+
+(def tag-sugar-corpus
+  "Inputs for parse-tag, as the string `(name kw)` produces. Chosen to pin the
+  regex grammar's corners, not just the happy path: an empty leading run (tag
+  defaults to \"div\"), a `#`/`.` whose run is empty (the regex engine retries
+  at the next position rather than matching), a second `#` (only the first
+  matching one wins), multiple classes (joined by one space, in order), a
+  trailing delimiter, non-ASCII (byte offsets vs UTF-16 char offsets), and
+  characters the attribute escaper has to handle."
+  ["div" "div.a" "div.a.b" "div#id" "div.a#id" "div#id.a"
+   ".a" "#id" ".a#id" "" "a..b" "a##b" "a#.b" "a.#b"
+   "div.a.b.c#x" "#x#y" ".a.b" "x." "x#" "div#a#b"
+   "p.foo-bar#baz_1" "セ.クラス#識別" "div.a&b#\"q\"" "a.b#c.d"])
+
+(defn- tag-sugar-cases [corpus]
+  (into {} (mapcat (fn [i s]
+                     (let [lit (kotoba-literal s)]
+                       [[(str "tag_" i) (str "(tag-name " lit ")")]
+                        [(str "cls_" i) (str "(tag-classes " lit ")")]
+                        [(str "id_" i) (str "(tag-id " lit ")")]
+                        [(str "atr_" i) (str "(tag-attrs " lit ")")]
+                        [(str "el_" i) (el-expr-call (str "(tag-name " lit ")")
+                                                     (str "(tag-attrs " lit ")")
+                                                     "\"\"")]]))
+                   (range) corpus)))
+
+(deftest tag-sugar-matches-html-core-parse-tag
+  (let [actual (compile-cases (tag-sugar-cases tag-sugar-corpus))]
+    (doseq [[i s] (map vector (range) tag-sugar-corpus)]
+      (testing (pr-str s)
+        (let [[tag base] (html/parse-tag (keyword s))]
+          (testing "tag name"
+            (is (= tag (get actual (str "tag_" i)))))
+          (testing "class string (\"\" means the regex found no class)"
+            (is (= (get base :class "") (get actual (str "cls_" i)))))
+          (testing "id (\"\" means the regex found no id)"
+            (is (= (get base :id "") (get actual (str "id_" i)))))
+          (testing "rendered base attribute string"
+            (is (= (html/render-attrs base) (get actual (str "atr_" i)))))
+          (testing "end-to-end element"
+            ;; Every corpus tag resolves to a non-void element, so html.core
+            ;; emits an open+close pair with no children — the same shape `el`
+            ;; composes from tag-name + tag-attrs.
+            (is (not (contains? html/void-tags tag)))
+            (is (= (html/->html [(keyword s)]) (get actual (str "el_" i))))))))))
