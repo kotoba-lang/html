@@ -19,19 +19,26 @@
              :html/el [:record :html/el
                        [[:tag :string] [:attrs-str :string] [:body :string]]]
              :html/raw-pair [:record :html/raw-pair
-                             [[:tag :string] [:content :string]]]}))
+                             [[:tag :string] [:content :string]]]
+             ;; tag-sugar scanner cursors (see "tag sugar" below)
+             :html/scan [:record :html/scan
+                         [[:s :string] [:pos :i64]]]
+             :html/scan-acc [:record :html/scan-acc
+                             [[:s :string] [:pos :i64] [:acc :string]]]}))
 
 ;; A `.kotoba` port of the string-producing core of `html.core` (ADR-2607270100
 ;; §10, form A: components are :string-returning pure functions, the tree lives
 ;; in the call graph). No capabilities: HTML generation is data -> text, so this
 ;; whole module sits in the kotoba/pure profile.
 ;;
-;; Kotoba has no recursive value types, so a Hiccup tree is NOT modelled as
-;; nested data here. Tag sugar (`:div.page#app`), class collections, sequence
-;; children and pretty-print indentation stay on the .cljc side; this port
-;; receives already-resolved tag names, attribute strings and body strings and
+;; A Hiccup tree is NOT modelled as nested data here. Class collections,
+;; sequence children and pretty-print indentation stay on the .cljc side; this
+;; port receives already-resolved attribute strings and body strings and
 ;; composes them. Consumers call `el` / `void-el` / `raw-text-el` in the shape
 ;; of the tree they want — the call graph *is* the tree.
+;;
+;; Tag sugar (`:div.page#app`) IS ported, as of the "tag sugar" section below:
+;; it is a character scan over one flat string, so it needs no recursive value.
 ;;
 ;; Attribute and style maps are `[:map :keyword :string]`. `typed-map-entry-at`
 ;; walks them in sorted key order, so the emitted text is deterministic by
@@ -185,6 +192,122 @@
                                                                                                (string-concat tag ">")))))))
       (result-err-of [:result :string :string]
                      (string-concat "raw-text breakout in <" (string-concat tag ">"))))))
+
+;; --- tag sugar ------------------------------------------------------------
+;; `html.core/parse-tag` turns `:div.page.wide#app` into ["div" {:class "page
+;; wide" :id "app"}]. The .cljc does it with three regexes; Kotoba has no regex
+;; head, so this is the same grammar written as an explicit scan.
+;;
+;; The grammar those three regexes encode: the string is a sequence of maximal
+;; runs of non-`.`/`#` characters, each introduced by start-of-string, `.` or
+;; `#`. The tag is the start-of-string run (`"div"` when that run is empty, i.e.
+;; the name begins with `.` or `#`, where `re-find #"^([^.#]+)"` returns nil).
+;; The id is the run after the FIRST `#` that has a non-empty run (`#([^.#]+)`
+;; requires one or more characters, so the regex engine retries at the next
+;; position when a `#` is followed immediately by another delimiter). The
+;; classes are the runs after every `.` with a non-empty run, joined by a space.
+;;
+;; INDEXING. `string-length` is the UTF-8 BYTE count and `string-substring`
+;; takes byte offsets (they are aliases of `string-byte-length` in Product Value
+;; ABI v1), while the .cljc regexes run over UTF-16 chars. The two agree here
+;; because the scan only ever cuts at code-point boundaries: `string-code-point-
+;; at` returns the code point starting at a byte offset, and `cp-width` derives
+;; how many bytes to advance. `.` (46) and `#` (35) are ASCII, so a delimiter is
+;; always exactly one byte.
+;;
+;; ABSENCE. `tag-id` / `tag-classes` return "" for "not present" rather than an
+;; `[:option :string]`. That is unambiguous rather than lossy: both regexes
+;; require one or more characters, so a match is never the empty string.
+;;
+;; STILL HOST-SIDE. `(name kw)` (keyword -> string, namespace stripping) is the
+;; caller's job; these take the already-named string. `html.core/class-str` also
+;; stays in .cljc — see the parity test for why.
+
+(defn cp-width [cp :i64] :i64
+  ;; UTF-8 byte width of a code point, per utf8-code-point-at!'s contract.
+  (if (< cp 128) 1 (if (< cp 2048) 2 (if (< cp 65536) 3 4))))
+
+(defn tag-delimiter? [cp :i64] :bool
+  ;; 46 = '.', 35 = '#' — the `[^.#]` character class of the .cljc regexes.
+  (if (= cp 46) true (if (= cp 35) true false)))
+
+(defn run-end [x [:ref :html/scan]] :i64
+  ;; Byte offset just past the maximal run of non-delimiter code points that
+  ;; starts at :pos (= :pos itself when the run is empty).
+  (let [s (record-get x :s)
+        pos (record-get x :pos)]
+    (if (= pos (string-length s))
+      pos
+      (let [cp (string-code-point-at s pos)]
+        (if (tag-delimiter? cp)
+          pos
+          (run-end (record-new [:ref :html/scan] s (+ pos (cp-width cp)))))))))
+
+(defn tag-name [s :string] :string
+  ;; `(or (second (re-find #"^([^.#]+)" s)) "div")`
+  (let [end (run-end (record-new [:ref :html/scan] s 0))]
+    (if (= end 0) "div" (string-substring s 0 end))))
+
+(defn id-from [x [:ref :html/scan]] :string
+  ;; `(second (re-find #"#([^.#]+)" s))`, "" when there is no match. On a `#`
+  ;; whose run is empty we advance by one byte, which is exactly the position
+  ;; the regex engine retries from.
+  (let [s (record-get x :s)
+        pos (record-get x :pos)]
+    (if (= pos (string-length s))
+      ""
+      (let [cp (string-code-point-at s pos)]
+        (if (= cp 35)
+          (let [end (run-end (record-new [:ref :html/scan] s (+ pos 1)))]
+            (if (> end (+ pos 1))
+              (string-substring s (+ pos 1) end)
+              (id-from (record-new [:ref :html/scan] s (+ pos 1)))))
+          (id-from (record-new [:ref :html/scan] s (+ pos (cp-width cp)))))))))
+
+(defn tag-id [s :string] :string
+  (id-from (record-new [:ref :html/scan] s 0)))
+
+(defn classes-from [x [:ref :html/scan-acc]] :string
+  ;; `(str/join " " (map second (re-seq #"\.([^.#]+)" s)))`. re-seq is
+  ;; non-overlapping, so after a match the scan resumes at the run's end.
+  (let [s (record-get x :s)
+        pos (record-get x :pos)
+        acc (record-get x :acc)]
+    (if (= pos (string-length s))
+      acc
+      (let [cp (string-code-point-at s pos)]
+        (if (= cp 46)
+          (let [end (run-end (record-new [:ref :html/scan] s (+ pos 1)))]
+            (if (> end (+ pos 1))
+              (classes-from
+               (record-new [:ref :html/scan-acc]
+                           s
+                           end
+                           (if (= 0 (string-length acc))
+                             (string-substring s (+ pos 1) end)
+                             (string-concat
+                              acc
+                              (string-concat " " (string-substring s (+ pos 1) end))))))
+              (classes-from (record-new [:ref :html/scan-acc] s (+ pos 1) acc))))
+          (classes-from (record-new [:ref :html/scan-acc]
+                                    s (+ pos (cp-width cp)) acc)))))))
+
+(defn tag-classes [s :string] :string
+  (classes-from (record-new [:ref :html/scan-acc] s 0 "")))
+
+(defn tag-attrs [s :string] :string
+  ;; The rendered attribute string for parse-tag's base map. `cond->` assocs
+  ;; :class then :id into an array-map, so render-attrs emits them in that
+  ;; order; `attr` escapes both values exactly as render-attrs does.
+  (let [classes (tag-classes s)
+        id (tag-id s)]
+    (string-concat
+     (if (= 0 (string-length classes))
+       ""
+       (attr (record-new [:ref :html/attr] "class" classes)))
+     (if (= 0 (string-length id))
+       ""
+       (attr (record-new [:ref :html/attr] "id" id))))))
 
 ;; --- document -------------------------------------------------------------
 

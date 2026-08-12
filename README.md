@@ -46,9 +46,13 @@ children that would be a breaking output-format change for those consumers.
 - Malformed or unsupported extension forms have no compatibility guarantee.
 - `kotoba/html_core.kotoba` is a form-A (call-graph) port of the string pipeline behind a
   byte-equality gate. It is an oracle-backed experiment ahead of W4 recursive values
-  (ADR-2607279200 Delivery #6) — not the final API. Tag sugar, class collections, sequence
-  children and pretty-print indentation remain on the `.cljc` side; consumers keep using
-  `html.core` / `kotoba.html`.
+  (ADR-2607279200 Delivery #6) — not the final API. Tag sugar (`:div.a.b#id`) is ported
+  as an explicit code-point scan (`tag-name` / `tag-classes` / `tag-id` / `tag-attrs`),
+  since it reads one flat string and needs no recursive value. Class collections,
+  sequence children and pretty-print indentation remain on the `.cljc` side, as does
+  `html.core/class-str` — it dispatches on the runtime type of an arbitrary Clojure
+  value and folds a nested heterogeneous collection, which a statically typed language
+  has nothing to express. Consumers keep using `html.core` / `kotoba.html`.
 
 ## Test
 
