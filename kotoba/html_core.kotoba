@@ -173,10 +173,8 @@
   ;; T5.2: tag+content on one guest record
   (let [tag (record-get x :tag)
         content (record-get x :content)]
-    (if (string-contains? (string-fold-case content)
-                          (string-concat "</" (string-fold-case tag)))
-      false
-      true)))
+    (not (string-contains? (string-fold-case content)
+                           (string-concat "</" (string-fold-case tag))))))
 
 (defn raw-text-el [x [:ref :html/raw-pair]] [:result :string :string]
   ;; T5.2: tag+content on one guest record (same shape as raw-text-safe?)

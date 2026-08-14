@@ -59,20 +59,20 @@
 ;; --- void-tag detection (subset used by contract corpus) ------------------
 
 (defn void-tag? [tag :string] :bool
-  (if (string=? tag "area") true
-  (if (string=? tag "base") true
-  (if (string=? tag "br") true
-  (if (string=? tag "col") true
-  (if (string=? tag "embed") true
-  (if (string=? tag "hr") true
-  (if (string=? tag "img") true
-  (if (string=? tag "input") true
-  (if (string=? tag "link") true
-  (if (string=? tag "meta") true
-  (if (string=? tag "param") true
-  (if (string=? tag "source") true
-  (if (string=? tag "track") true
-  (if (string=? tag "wbr") true false)))))))))))))))
+  (or (string=? tag "area")
+      (string=? tag "base")
+      (string=? tag "br")
+      (string=? tag "col")
+      (string=? tag "embed")
+      (string=? tag "hr")
+      (string=? tag "img")
+      (string=? tag "input")
+      (string=? tag "link")
+      (string=? tag "meta")
+      (string=? tag "param")
+      (string=? tag "source")
+      (string=? tag "track")
+      (string=? tag "wbr")))
 
 ;; --- document constructors ------------------------------------------------
 
