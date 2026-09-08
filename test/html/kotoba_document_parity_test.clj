@@ -14,7 +14,7 @@
   collections, and pretty-print stay host-side (same as form-A scope).
 
   T5.2 + document-in-record: multi-arg pure folded into :hdoc/* guest records."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [html.core :as html]
             [kotoba.compiler.core :as compiler]
