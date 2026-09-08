@@ -33,7 +33,7 @@
   order above 8 entries.
 
   T5.2: multi-arg pure folded into guest records; cases call via record-new."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [html.core :as html]
             [kotoba.compiler.core :as compiler]
