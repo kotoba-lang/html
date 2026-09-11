@@ -59,5 +59,5 @@ children that would be a breaking output-format change for those consumers.
 ```bash
 clojure -M:test
 clojure -M:lint
-nbb test/run_nbb_contract_tests.cljs
+nbb test/run_nbb_contract_tests.cljk
 ```
