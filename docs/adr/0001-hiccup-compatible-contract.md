@@ -18,5 +18,5 @@ Extensions must remain additive and must not reinterpret valid Hiccup forms.
 Per ADR-2607270100 §10 / ADR-2607279200 Delivery #6, `kotoba/html_core.kotoba` ports the
 string-producing core (escape, attrs, style, void/closed elements, RAWTEXT breakout) as form A
 (call-graph composition, no recursive value tree). `html.core` is unchanged for consumers.
-Byte-equality is gated by `test/html/kotoba_parity_test.clj` against key-sorted `html.core` runs.
+Byte-equality is gated by `test/html/kotoba_parity_test.cljk` against key-sorted `html.core` runs.
 This is an oracle-backed experiment ahead of W4; do not treat it as the final HTML API.
