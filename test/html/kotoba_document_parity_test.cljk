@@ -15,7 +15,7 @@
 
   T5.2 + document-in-record: multi-arg pure folded into :hdoc/* guest records."
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [html.core :as html]
             [kotoba.compiler.core :as compiler]
             [kotoba.kir :as ir]

@@ -1,5 +1,5 @@
 (ns html.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [html.core :as html]))
 
 (deftest renders-hiccup
