@@ -1,6 +1,6 @@
 (ns kotoba.html-test
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [kotoba.html :as h]))
 
 (deftest elements-and-attrs
